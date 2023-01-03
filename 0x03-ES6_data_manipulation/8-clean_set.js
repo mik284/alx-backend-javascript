@@ -18,4 +18,4 @@ const cleanSet = (set, startString) => {
   return str.join('-');
 };
 
-export default cleanSe
+export default cleanSet
