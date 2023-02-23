@@ -1,57 +1,70 @@
+#!/usr/bin/node
+
 const http = require('http');
 const fs = require('fs');
-const { argv } = require('process');
 
-function countStudents(path, stream) {
-  if (fs.existsSync(path)) {
-    const data = fs.readFileSync(path, 'utf8');
-    const result = [];
-    data.split('\n').forEach((data) => {
-      result.push(data.split(','));
-    });
-    result.shift();
-    const newis = [];
-    result.forEach((data) => newis.push([data[0], data[3]]));
-    const fields = new Set();
-    newis.forEach((item) => fields.add(item[1]));
-    const final = {};
-    fields.forEach((data) => { (final[data] = 0); });
-    newis.forEach((data) => { (final[data[1]] += 1); });
-    stream.write(`Number of students: ${result.length}\n`);
-    const temp = [];
-    Object.keys(final).forEach((data) => temp.push(`Number of students in ${data}: ${final[data]}. List: ${newis.filter((n) => n[1] === data).map((n) => n[0]).join(', ')}\n`));
-    // eslint-disable-next-line no-plusplus
-    for (let i = 0; i < temp.length; i++) {
-      if (i === temp.length - 1) {
-        temp[i] = temp[i].replace(/(\r\n|\n|\r)/gm, '');
-      }
-      stream.write(temp[i]);
+function countStudents(path) {
+  return new Promise((resolve, reject) => {
+    if (!fs.existsSync(path)) {
+      reject(new Error('Cannot load the database'));
     }
-  } else { throw new Error('Cannot load the database'); }
+
+    const data = fs.readFileSync(path, 'utf8');
+    const lines = data.split('\n').filter((line) => line.trim() !== '');
+
+    if (lines.length === 0) {
+      reject(new Error('The CSV file is empty'));
+    }
+
+    const headers = lines.shift().split(',');
+    if (headers.length !== 4 || !headers.includes('firstname') || !headers.includes('lastname') || !headers.includes('age') || !headers.includes('field')) {
+      reject(new Error('The CSV file has an invalid format'));
+    }
+
+    const studentsByField = {};
+    lines.forEach((line) => {
+      const [firstname, lastname, age, field] = line.split(',');
+      if (!studentsByField[field]) {
+        studentsByField[field] = [];
+      }
+      studentsByField[field].push(`${firstname} ${lastname}`);
+    });
+
+    resolve(studentsByField);
+  });
 }
 
 const hostname = 'localhost';
 const port = 1245;
 
-const app = http.createServer((req, res) => {
-  res.statusCode = 200;
-  res.setHeader('Content-Type', 'text/plain');
-  const { url } = req;
-  if (url === '/') {
-    res.write('Hello Holberton School!');
-    res.end();
-  }
-  if (url === '/students') {
-    res.write('This is the list of our students\n');
-    try {
-      countStudents(argv[2], res);
-      res.end();
-    } catch (err) {
-      res.end(err.message);
-    }
+const server = http.createServer((req, res) => {
+  if (req.url === '/') {
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'text/plain');
+    res.end('Hello Holberton School!\n');
+  } else if (req.url === '/students') {
+    countStudents('database.csv')
+      .then((studentsByField) => {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'text/plain');
+        res.write('This is the list of our students\n');
+        Object.entries(studentsByField).forEach(([field, students]) => {
+          res.write(`Number of students in ${field}: ${students.length}. List: ${students.join(', ')}\n`);
+        });
+        res.end();
+      })
+      .catch((error) => {
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'text/plain');
+        res.end(error.message + '\n');
+      });
+  } else {
+    res.statusCode = 404;
+    res.setHeader('Content-Type', 'text/plain');
+    res.end('Not found\n');
   }
 });
 
-app.listen(port, hostname);
-
-module.exports = app;
+server.listen(port, hostname, () => {
+  console.log(`Server running at http://${hostname}:${port}/`);
+});
